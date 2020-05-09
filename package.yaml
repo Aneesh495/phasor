@@ -1,0 +1,4 @@
+name: phasor
+description: Synchrophasor Measurement Unit and Grid Frequency Stability Controller
+environment:
+  sdk: ">=2.0.0"
