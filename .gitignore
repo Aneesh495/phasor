@@ -31,6 +31,10 @@ venv/
 recordings/
 output/
 
+# Whitelist benchmark data files
+!data/*.dat
+!data/*.cfg
+
 # Logs and runtime dumps
 *.log
 *.dump
