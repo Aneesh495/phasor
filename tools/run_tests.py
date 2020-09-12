@@ -10,7 +10,29 @@ import subprocess
 import time
 
 CHPL = os.environ.get("CHPL", "chpl")
-CHPL_FLAGS = ["--fast", "--warn-unstable=false"]
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+MODULE_DIRS = [
+    os.path.join(REPO_ROOT, "src", "Common"),
+    os.path.join(REPO_ROOT, "src", "Math"),
+    os.path.join(REPO_ROOT, "src", "Grid"),
+    os.path.join(REPO_ROOT, "src", "Admittance"),
+    os.path.join(REPO_ROOT, "src", "PowerFlow"),
+    os.path.join(REPO_ROOT, "src", "StateEstimation"),
+    os.path.join(REPO_ROOT, "src", "Contingency"),
+    os.path.join(REPO_ROOT, "src", "Dynamics"),
+    os.path.join(REPO_ROOT, "src", "Optimization"),
+    os.path.join(REPO_ROOT, "src", "Telemetry"),
+    os.path.join(REPO_ROOT, "src", "IO"),
+    os.path.join(REPO_ROOT, "src")
+]
+
+CHPL_MODULE_FLAGS = []
+for d in MODULE_DIRS:
+    if os.path.exists(d):
+        CHPL_MODULE_FLAGS.extend(["-M", d])
+
+CHPL_FLAGS = ["--fast", "--warn-unstable=false"] + CHPL_MODULE_FLAGS
 
 
 def run_test(test_file, build_dir):
@@ -34,11 +56,15 @@ def run_test(test_file, build_dir):
 
     # Execute
     t0 = time.time()
-    res_run = subprocess.run([binary], capture_output=True, text=True, timeout=60)
-    run_time = time.time() - t0
-
-    status = "PASS" if res_run.returncode == 0 else "FAIL"
-    output = res_run.stdout if status == "PASS" else res_run.stderr
+    try:
+        res_run = subprocess.run([binary], capture_output=True, text=True, timeout=60)
+        run_time = time.time() - t0
+        status = "PASS" if res_run.returncode == 0 else "FAIL"
+        output = res_run.stdout if status == "PASS" else res_run.stderr
+    except subprocess.TimeoutExpired:
+        run_time = time.time() - t0
+        status = "TIMEOUT"
+        output = "Execution timed out after 60 seconds."
 
     return {
         "name": test_name,
@@ -50,9 +76,8 @@ def run_test(test_file, build_dir):
 
 
 def main():
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    tests_dir = os.path.join(repo_root, "tests")
-    build_dir = os.path.join(repo_root, "build", "test_bins")
+    tests_dir = os.path.join(REPO_ROOT, "tests")
+    build_dir = os.path.join(REPO_ROOT, "build", "test_bins")
     os.makedirs(build_dir, exist_ok=True)
 
     test_files = sorted([
