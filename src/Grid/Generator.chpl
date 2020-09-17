@@ -93,6 +93,13 @@ module Generator {
       this.tq0Prime = 1.0;
     }
 
+    // Sets quadratic fuel cost coefficients: C(P) = a * P^2 + b * P + c
+    proc ref setCostCurve(a: real, b: real, c: real) {
+      this.costA = a;
+      this.costB = b;
+      this.costC = c;
+    }
+
     // Evaluates fuel cost for active power generation P: C(P) = a * P^2 + b * P + c
     inline proc fuelCost(p: real): real {
       return costA * p * p + costB * p + costC;
