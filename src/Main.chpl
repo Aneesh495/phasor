@@ -47,24 +47,38 @@ module Main {
     writeln("  help                   Show this help message");
     writeln();
     writeln("Options:");
+    writeln("  --case=<path>          Network file path (optional alternative to positional file argument)");
     writeln("  --method=<nr|fdf|dc>   Power flow algorithm (default: nr)");
     writeln("  --export-json=<file>   Path to export solution in JSON format");
     writeln("  --demand=<MW>          Target active power demand for economic dispatch");
     writeln("  --security             Enable security-constrained branch thermal limits");
   }
 
+  proc extractRawPath(args: [] string): string {
+    var path = "";
+    for i in 1..<args.size {
+      if args[i].startsWith("--case=") {
+        var parts = args[i].split("=");
+        if parts.size > 1 then return parts[1];
+      } else if !args[i].startsWith("--") && path.size == 0 {
+        path = args[i];
+      }
+    }
+    return path;
+  }
+
   proc runSolve(args: [] string) {
-    if args.size < 2 {
+    const rawPath = extractRawPath(args);
+    if rawPath.size == 0 {
       writeln("Error: Missing RAW network file path.");
       writeln("Usage: phasor solve <raw_file> [--method=nr|fdf|dc] [--export-json=<file>]");
       return;
     }
 
-    const rawPath = args[1];
     var method = "nr";
     var jsonPath = "";
 
-    for i in 2..<args.size {
+    for i in 1..<args.size {
       if args[i].startsWith("--method=") {
         var parts = args[i].split("=");
         if parts.size > 1 then method = parts[1];
@@ -119,14 +133,69 @@ module Main {
     }
   }
 
+  proc runEstimate(args: [] string) {
+    const rawPath = extractRawPath(args);
+    if rawPath.size == 0 {
+      writeln("Error: Missing RAW network file path.");
+      writeln("Usage: phasor estimate <raw_file>");
+      return;
+    }
+
+    var (netOpt, err) = parseRawFile(rawPath);
+    if !err.isOk() || netOpt == nil {
+      writeln("Error: Failed to load network from ", rawPath, ": ", err.message);
+      return;
+    }
+
+    var net = netOpt!;
+    writeln("Loaded network: ", net.name, " (", net.numBuses, " buses, ", net.numBranches, " branches)");
+
+    // Solve base AC power flow to synthesize telemetry measurements
+    var nr = new NewtonRaphsonSolver(maxIter=PF_MAX_ITERATIONS, tol=PF_TOLERANCE);
+    var (nrRes, nrErr) = nr.solve(net);
+    if !nrErr.isOk() {
+      writeln("Error: Base power flow failed for measurement synthesis: ", nrErr.message);
+      return;
+    }
+
+    // Synthesize SCADA and PMU measurements: voltage magnitude and angles
+    const numMeas = net.numBuses * 2;
+    var meas: [0..<numMeas] GridMeasurement;
+
+    for b in 0..<net.numBuses {
+      meas[b] = new GridMeasurement(b + 1, MeasurementType.BusVoltageMag, b, nrRes.vMag[b], 0.005);
+      meas[net.numBuses + b] = new GridMeasurement(net.numBuses + b + 1, MeasurementType.BusVoltageAngle, b, nrRes.vAngleRad[b], 0.002, pmu=true);
+    }
+
+    writeln("Synthesized ", numMeas, " telemetry measurements (SCADA magnitudes + PMU angles).");
+    writeln("Executing AC Weighted Least Squares (WLS) state estimator...");
+
+    var wls = new WLSSolver(maxIter=25, tol=1.0e-5);
+    var (seRes, seErr) = wls.estimate(net, meas);
+    if !seErr.isOk() {
+      writeln("Error in state estimation: ", seErr.message);
+      return;
+    }
+
+    writeln("=================================================================");
+    writeln(" AC STATE ESTIMATION CONVERGENCE REPORT");
+    writeln("=================================================================");
+    writeln(" Convergence Status:        ", if seRes.converged then "CONVERGED" else "FAILED");
+    writeln(" Iterations:                ", seRes.iterations);
+    writeln(" Objective Chi-Square:      ", seRes.objectiveJ);
+    writeln(" Max State Delta:           ", seRes.maxDeltaX);
+    writeln(" Execution Time:            ", seRes.elapsedMs, " ms");
+    writeln("=================================================================");
+  }
+
   proc runContingency(args: [] string) {
-    if args.size < 2 {
+    const rawPath = extractRawPath(args);
+    if rawPath.size == 0 {
       writeln("Error: Missing RAW network file path.");
       writeln("Usage: phasor contingency <raw_file>");
       return;
     }
 
-    const rawPath = args[1];
     var (netOpt, err) = parseRawFile(rawPath);
     if !err.isOk() || netOpt == nil {
       writeln("Error: Failed to load network from ", rawPath, ": ", err.message);
@@ -160,14 +229,51 @@ module Main {
     writeln("=================================================================");
   }
 
+  proc runDynamic(args: [] string) {
+    const rawPath = extractRawPath(args);
+    if rawPath.size == 0 {
+      writeln("Error: Missing RAW network file path.");
+      writeln("Usage: phasor dynamic <raw_file>");
+      return;
+    }
+
+    var (netOpt, err) = parseRawFile(rawPath);
+    if !err.isOk() || netOpt == nil {
+      writeln("Error: Failed to load network from ", rawPath, ": ", err.message);
+      return;
+    }
+
+    var net = netOpt!;
+    writeln("Loaded network: ", net.name, " (", net.numBuses, " buses, ", net.numGenerators, " generators)");
+    writeln("Executing multi-machine transient stability simulation (4th-order Runge-Kutta)...");
+
+    var sim = new MultiMachineSimulator(stepSize=0.002, simDuration=1.5, tFlt=0.20, tClr=0.28);
+    var (res, dErr) = sim.simulate(net);
+    if !dErr.isOk() {
+      writeln("Error during transient simulation: ", dErr.message);
+      return;
+    }
+
+    writeln("=================================================================");
+    writeln(" TRANSIENT STABILITY SIMULATION REPORT");
+    writeln("=================================================================");
+    writeln(" Stability Status:          ", if res.isStable then "TRANSIENTLY STABLE" else "UNSTABLE (POLE SLIP)");
+    writeln(" Critical Clearing Bound:   ", if res.criticalClearingTimeExceeded then "EXCEEDED" else "PRESERVED");
+    writeln(" Max Rotor Separation:      ", res.maxRotorSeparationDeg, " deg");
+    writeln(" Worst Machine ID:          ", res.worstMachineId);
+    writeln(" Timesteps Evaluated:       ", res.timeStepsTaken);
+    writeln(" Execution Time:            ", res.elapsedMs, " ms");
+    writeln("=================================================================");
+  }
+
   proc runDispatch(args: [] string) {
-    if args.size < 2 {
+    const rawPath = extractRawPath(args);
+    if rawPath.size == 0 {
       writeln("Error: Missing RAW network file path.");
       writeln("Usage: phasor dispatch <raw_file> [--demand=MW] [--security]");
       return;
     }
 
-    const rawPath = args[1];
     var (netOpt, err) = parseRawFile(rawPath);
     if !err.isOk() || netOpt == nil {
       writeln("Error: Failed to load network from ", rawPath, ": ", err.message);
@@ -180,7 +286,7 @@ module Main {
     var targetDemand = pLoad;
     var useSecurity = false;
 
-    for i in 2..<args.size {
+    for i in 1..<args.size {
       if args[i].startsWith("--demand=") {
         var parts = args[i].split("=");
         if parts.size > 1 then targetDemand = try! parts[1]: real;
@@ -232,7 +338,9 @@ module Main {
 
     select cmd {
       when "solve" { runSolve(subArgs); }
+      when "estimate" { runEstimate(subArgs); }
       when "contingency" { runContingency(subArgs); }
+      when "dynamic" { runDynamic(subArgs); }
       when "dispatch" { runDispatch(subArgs); }
       when "version", "--version", "-v" {
         writeln("Phasor Synchrophasor Telemetry & Power Grid Stability Kernel v1.0.0");

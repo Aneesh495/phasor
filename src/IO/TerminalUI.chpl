@@ -39,8 +39,8 @@ module TerminalUI {
 
     for b in 0..<net.numBuses {
       const bus = net.buses[b];
-      const vm = bus.vm;
-      const va = bus.va_deg;
+      const vm = bus.vMag;
+      const va = bus.vAngle * RAD_TO_DEG;
 
       var color = ANSI_GREEN;
       var statusStr = "NORMAL";

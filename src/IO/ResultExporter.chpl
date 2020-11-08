@@ -107,21 +107,23 @@ module ResultExporter {
       var w = f.writer();
 
       w.writeln("{");
-      w.writeln("  \"totalScreened\": ", rep.totalEvaluated, ",");
-      w.writeln("  \"violatingCount\": ", rep.violatingCount, ",");
-      w.writeln("  \"maxActivePIP\": ", rep.maxActivePIP, ",");
-      w.writeln("  \"maxVoltagePIV\": ", rep.maxVoltagePIV, ",");
+      w.writeln("  \"totalContingencies\": ", rep.totalContingencies, ",");
+      w.writeln("  \"criticalCount\": ", rep.criticalCount, ",");
+      w.writeln("  \"warningCount\": ", rep.warningCount, ",");
+      w.writeln("  \"secureCount\": ", rep.secureCount, ",");
       w.writeln("  \"worstContingencyId\": ", rep.worstContingencyId, ",");
+      w.writeln("  \"worstContingencyName\": \"", rep.worstContingencyName, "\",");
+      w.writeln("  \"worstLoadingPct\": ", rep.worstLoadingPct, ",");
       w.writeln("  \"elapsedMs\": ", rep.elapsedMs, ",");
-      w.writeln("  \"contingencies\": [");
+      w.writeln("  \"severities\": [");
 
-      for c in 0..<rep.totalEvaluated {
-        const eval = rep.evaluations[c];
-        w.write("    {\"id\": ", eval.outage.id, ", \"desc\": \"", eval.outage.description,
-                "\", \"hasViolation\": ", eval.hasViolation,
-                ", \"piP\": ", eval.piP, ", \"piV\": ", eval.piV,
-                ", \"maxLIndex\": ", eval.maxLIndex, "}");
-        if c < rep.totalEvaluated - 1 then w.writeln(","); else w.writeln();
+      for c in 0..<rep.totalContingencies {
+        const sev = rep.severities[c];
+        w.write("    {\"id\": ", sev.contingencyId, ", \"name\": \"", sev.name,
+                "\", \"piP\": ", sev.piP, ", \"piV\": ", sev.piV,
+                ", \"maxLineLoadingPct\": ", sev.maxLineLoadingPct,
+                ", \"minBusVoltage\": ", sev.minBusVoltage, "}");
+        if c < rep.totalContingencies - 1 then w.writeln(","); else w.writeln();
       }
 
       w.writeln("  ]");

@@ -39,6 +39,18 @@ def cmd_contingency(args):
     subprocess.run(cmd, cwd=REPO_ROOT)
 
 
+def cmd_estimate(args):
+    ensure_binary()
+    cmd = [BIN_PHASOR, "estimate", args.raw_file]
+    subprocess.run(cmd, cwd=REPO_ROOT)
+
+
+def cmd_dynamic(args):
+    ensure_binary()
+    cmd = [BIN_PHASOR, "dynamic", args.raw_file]
+    subprocess.run(cmd, cwd=REPO_ROOT)
+
+
 def cmd_dispatch(args):
     ensure_binary()
     cmd = [BIN_PHASOR, "dispatch", args.raw_file, f"--demand={args.demand}"]
@@ -71,6 +83,16 @@ def main():
     p_cont = subparsers.add_parser("contingency", help="Run parallel N-1 contingency screening")
     p_cont.add_argument("raw_file", help="Path to PSS/E RAW network file")
     p_cont.set_defaults(func=cmd_contingency)
+
+    # Estimate
+    p_est = subparsers.add_parser("estimate", help="Run AC WLS state estimation")
+    p_est.add_argument("raw_file", help="Path to PSS/E RAW network file")
+    p_est.set_defaults(func=cmd_estimate)
+
+    # Dynamic
+    p_dyn = subparsers.add_parser("dynamic", help="Run multi-machine transient stability simulation")
+    p_dyn.add_argument("raw_file", help="Path to PSS/E RAW network file")
+    p_dyn.set_defaults(func=cmd_dynamic)
 
     # Dispatch
     p_disp = subparsers.add_parser("dispatch", help="Run optimal economic generation dispatch")
