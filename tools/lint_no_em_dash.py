@@ -39,9 +39,11 @@ FORBIDDEN_CHARS = [
     ("\u2015", "Horizontal Bar (U+2015)"),
 ]
 
-# Catches prose double-hyphens like "word -- word" or "thought--next"
-# Avoids CLI flags like "--verbose", decrement operators like "i--", or markdown dividers like "---"
-PROSE_DOUBLE_HYPHEN = re.compile(r'(?<=[a-zA-Z0-9])\s*--\s*(?=[a-zA-Z0-9])')
+# Catches prose double-hyphens used as em dash:
+# 1) Spaced double-hyphen: "word -- word"
+# 2) Unspaced double-hyphen joining words: "word--word"
+# Preserves CLI flags like "cmd --flag" (space before, no space after) and dividers "---"
+PROSE_DOUBLE_HYPHEN = re.compile(r'(?<=[a-zA-Z0-9])\s+--\s+(?=[a-zA-Z0-9])|(?<=[a-zA-Z0-9])--(?!-)(?=[a-zA-Z0-9])')
 
 
 def check_file(filepath):

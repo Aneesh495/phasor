@@ -1,33 +1,45 @@
-# Phasor: IEEE C37.118 Synchrophasor Measurement Unit and Grid Frequency Stability Controller
+# Phasor Energy Management System (EMS) and Dynamic Stability Kernel
 # Makefile for building, testing, linting, and benchmarking
 
-.PHONY: all test test-toit test-python lint bench clean check
+CHPL ?= chpl
+CC ?= clang
+CFLAGS ?= -O3 -Wall -Wextra -Iinclude
+CHPL_FLAGS ?= --fast
+CHPL_FLAGS += --warn-unstable=false
+CHPL_FLAGS += -M src/Common -M src/Math -M src/Grid -M src/Admittance -M src/PowerFlow -M src/StateEstimation -M src/Contingency -M src/Dynamics -M src/Optimization -M src/Telemetry -M src/IO
 
-all: test
+.PHONY: all phasor c_accel test bench lint check clean
 
-test: test-toit test-python
+all: phasor c_accel
 
-test-toit:
-	@echo "==> Running Toit unit and integration test suite..."
-	@python3 tools/run_toit_tests.py
+phasor:
+	@mkdir -p bin build
+	@echo "==> Building native Chapel phasor executable..."
+	$(CHPL) $(CHPL_FLAGS) src/Main.chpl -o bin/phasor
 
-test-python:
-	@echo "==> Running Python HIL and compliance test suite..."
-	@python3 -m unittest discover -s tests -p "test_*.py"
+c_accel:
+	@mkdir -p build
+	@echo "==> Building C acceleration and shared-memory bridge..."
+	$(CC) $(CFLAGS) -c c_src/phasor_fast_crc.c -o build/phasor_fast_crc.o
+	$(CC) $(CFLAGS) -c c_src/phasor_shared_mem.c -o build/phasor_shared_mem.o
+	ar rcs build/libphasor_c.a build/phasor_fast_crc.o build/phasor_shared_mem.o
+	$(CC) $(CFLAGS) c_src/test_c_accel.c build/libphasor_c.a -o build/test_c_accel
 
-lint:
-	@echo "==> Verifying typography invariants (no em dashes or en dashes)..."
-	@python3 tools/lint_no_em_dash.py
-	@echo "==> Checking Toit syntax across all modules..."
-	@toit analyze src/engine.toit
+test:
+	@echo "==> Running automated Chapel test harness..."
+	@python3 tools/run_tests.py
 
 bench:
-	@echo "==> Running Toit and Python performance benchmark suite..."
-	@python3 benchmarks/benchmarks.py
+	@echo "==> Running high-performance benchmark suite..."
+	@python3 tools/benchmark_runner.py
+
+lint:
+	@echo "==> Verifying typography invariants (zero em dash)..."
+	@python3 tools/lint_no_em_dash.py
 
 check: lint test
 	@echo "==> All verification checks PASSED successfully."
 
 clean:
-	@rm -rf build/ bin/ *.snapshot .packages/ recordings/ output/
+	@rm -rf build/ bin/ *.o *.a
 	@find . -type d -name "__pycache__" -exec rm -rf {} +

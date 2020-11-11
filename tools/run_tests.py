@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 Test runner for Phasor test suite.
-Compiles and executes Chapel unit and integration tests with detailed reporting.
+Compiles and executes Chapel unit and integration tests with parallel execution.
 """
 
 import os
 import sys
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CHPL = os.environ.get("CHPL", "chpl")
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,7 +33,8 @@ for d in MODULE_DIRS:
     if os.path.exists(d):
         CHPL_MODULE_FLAGS.extend(["-M", d])
 
-CHPL_FLAGS = ["--fast", "--warn-unstable=false"] + CHPL_MODULE_FLAGS
+# Avoid --fast during test runs to minimize LLVM compile times while verifying logic
+CHPL_FLAGS = ["--warn-unstable=false"] + CHPL_MODULE_FLAGS
 
 
 def run_test(test_file, build_dir):
@@ -89,31 +91,38 @@ def main():
         print("No Chapel test files found in tests/")
         sys.exit(0)
 
-    print(f"Discovered {len(test_files)} Chapel test files.")
+    num_workers = min(len(test_files), os.cpu_count() or 4)
+    print(f"Discovered {len(test_files)} Chapel test files. Running with {num_workers} parallel workers...")
     print("=" * 65)
 
     passed = 0
     failed = 0
+    results = []
 
-    for tf in test_files:
-        res = run_test(tf, build_dir)
-        name = res["name"]
-        status = res["status"]
-        c_time = res["compile_time"]
-        r_time = res["run_time"]
+    start_total = time.time()
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        future_to_test = {executor.submit(run_test, tf, build_dir): tf for tf in test_files}
+        for future in as_completed(future_to_test):
+            res = future.result()
+            results.append(res)
+            name = res["name"]
+            status = res["status"]
+            c_time = res["compile_time"]
+            r_time = res["run_time"]
 
-        if status == "PASS":
-            passed += 1
-            print(f"  [PASS] {name:<35} (compile: {c_time:.2f}s, exec: {r_time:.2f}s)")
-        else:
-            failed += 1
-            print(f"  [{status}] {name:<35} (compile: {c_time:.2f}s)")
-            if res["output"]:
-                for line in res["output"].splitlines()[:10]:
-                    print(f"         {line}")
+            if status == "PASS":
+                passed += 1
+                print(f"  [PASS] {name:<35} (compile: {c_time:.2f}s, exec: {r_time:.2f}s)")
+            else:
+                failed += 1
+                print(f"  [{status}] {name:<35} (compile: {c_time:.2f}s)")
+                if res["output"]:
+                    for line in res["output"].splitlines()[:10]:
+                        print(f"         {line}")
 
+    total_elapsed = time.time() - start_total
     print("=" * 65)
-    print(f"Total: {len(test_files)} | Passed: {passed} | Failed: {failed}")
+    print(f"Total: {len(test_files)} | Passed: {passed} | Failed: {failed} | Elapsed: {total_elapsed:.2f}s")
 
     if failed > 0:
         sys.exit(1)
