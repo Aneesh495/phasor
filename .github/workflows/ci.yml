@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Strict Typography Audit (Zero Em Dash)
+        run: |
+          python3 tools/lint_no_em_dash.py
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Chapel Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang make
+          # Fetch and install Chapel release binary
+          wget -q https://github.com/chapel-lang/chapel/releases/download/2.1.0/chapel-2.1.0.tar.gz || true
+
+      - name: Build C Acceleration Library
+        run: |
+          mkdir -p build bin
+          clang -O3 -Wall -Wextra -Iinclude c_src/phasor_fast_crc.c c_src/phasor_shared_mem.c c_src/test_c_accel.c -o build/test_c_accel
+          ./build/test_c_accel
+
+      - name: Execute Python Telemetry Tests
+        run: |
+          python3 python/pmu_stream_emulator.py 0.2
